@@ -39,7 +39,7 @@ public class Course {
 	}
 	
 	public void addStudent(Student student) {
-		students.put(student.getName(), student);
+		students.put(student.getId(), student);
 	}
 
 	public boolean isExamClose() {

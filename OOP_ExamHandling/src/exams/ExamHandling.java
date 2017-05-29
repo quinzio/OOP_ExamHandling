@@ -25,15 +25,18 @@ public class ExamHandling {
 	public void addStudyPlan(String name, String... courses)
 			throws ExamException {
 		if (studyPlans.containsKey(name))
-			throw new ExamException();
+			throw new ExamException("Studyplan already implemented");
 		StudyPlan studyPlan = new StudyPlan(name, null);
 		for (String c : courses) {
-			if (coursesGlob.containsKey(c))
-				throw new ExamException();
-			Course course = new Course(c);
+			if (studyPlan.getCourses().containsKey(c))
+				throw new ExamException("Course already in studyplan");
+			Course course = coursesGlob.containsKey(c)
+					? coursesGlob.get(c)
+					: new Course(c);
 			studyPlan.addCourse(course);
 			coursesGlob.put(c, course);
 		}
+		studyPlans.put(name, studyPlan);
 	}
 
 	/**
@@ -49,7 +52,9 @@ public class ExamHandling {
 			String studyPlan) throws ExamException {
 
 		if (students.containsKey(studentId))
-			throw new ExamException();
+			throw new ExamException("Student already enrolled");
+		if (!studyPlans.containsKey(studyPlan))
+			throw new ExamException("Studyplan already created");
 		Student stud = new Student(studentName, studentId,
 				studyPlans.get(studyPlan));
 		studyPlans.get(studyPlan).addStudent(stud);
@@ -99,9 +104,9 @@ public class ExamHandling {
 	 */
 	public void openExam(String courseName) throws ExamException {
 		if (!coursesGlob.containsKey(courseName))
-			throw new ExamException();
+			throw new ExamException("Course does not exist");
 		if (coursesGlob.get(courseName).isExamOpen())
-			throw new ExamException();
+			throw new ExamException("Exam for this course is already open");
 
 		coursesGlob.get(courseName).setExamOpen(true);
 	}
@@ -119,14 +124,14 @@ public class ExamHandling {
 	 **/
 	public void takeExam(String studentId, String course) throws ExamException {
 		if (!coursesGlob.containsKey(course))
-			throw new ExamException();
+			throw new ExamException("Course does not exist");
 		if (!students.get(studentId).getStudyplan().getCourses()
 				.containsKey(course))
-			throw new ExamException();
+			throw new ExamException("course is not included in student's studyplan");
 		if (!coursesGlob.get(course).isExamOpen())
-			throw new ExamException();
+			throw new ExamException("Exam is already open");
 		if (coursesGlob.get(course).getGrades().containsKey(studentId))
-			throw new ExamException();
+			throw new ExamException("Exam has already been graded");
 
 		coursesGlob.get(course).getGrades().put(studentId, null);
 	}
@@ -138,11 +143,26 @@ public class ExamHandling {
 	 * 
 	 **/
 	public List<String> studentsWhoTookTheExam(String courseName) {
-		if (coursesGlob.get(courseName).isExamClose()) return null;
+		if (coursesGlob.get(courseName).isExamClose())
+			return null;
 		List<String> ls = new ArrayList<>(
 				coursesGlob.get(courseName).getGrades().keySet());
 		ls.sort(Comparator.naturalOrder());
 		return ls;
+	}
+
+	/***
+	 * 
+	 * Il metodo int numberOfOpenExamSessions dà il n. delle sessioni d’esame
+	 * aperte nel momento della chiamata del metodo.
+	 * 
+	 **/
+
+	public int numberOfOpenExamSessions() {
+		Long result = coursesGlob.values().stream()
+				.filter(c -> c.isExamOpen() == true)
+				.filter(c -> c.isExamClose() == false).count();
+		return Integer.valueOf(result.toString());
 	}
 
 	/***
@@ -161,12 +181,14 @@ public class ExamHandling {
 	public void giveGrade(String courseName, String studentId, int grade)
 			throws ExamException {
 		if (grade < 12 | grade > 30)
-			throw new ExamException();
+			throw new ExamException("Bad grade");
 		if (!coursesGlob.get(courseName).getGrades().containsKey(studentId))
-			throw new ExamException();
-		if (coursesGlob.get(courseName).getGrades().get(studentId) >= 18)
-			throw new ExamException();
+			throw new ExamException("Student has not applied for the exam");
+		if (coursesGlob.get(courseName).getGrades().get(studentId) != null)
+			if (coursesGlob.get(courseName).getGrades().get(studentId) >= 18)
+				throw new ExamException("Exam already passed with grade 18 or higher");
 		coursesGlob.get(courseName).getGrades().put(studentId, grade);
+		students.get(studentId).addGrade(courseName, grade);
 	}
 	/***
 	 * Il metodo closeExam (String courseName) chiude la sessione d'esame.
@@ -181,11 +203,82 @@ public class ExamHandling {
 	public void closeExam(String courseName) throws ExamException {
 		Course course = coursesGlob.get(courseName);
 		if (!course.isExamOpen())
-			throw new ExamException();
-		if (course.getGrades().values().contains(null)) 
-			throw new ExamException();
+			throw new ExamException("Exam was open");
+		if (course.getGrades().values().contains(null))
+			throw new ExamException("Some student's exams has not been evaluated");
 		course.setExamClose(true);
-		
+	}
+	/**
+	 * 
+	 * Il metodo gradesOfStudent (String studentId) per lo studente indicato
+	 * raggruppa per voto i nomi dei corsi relativi agli esami; i voti sono
+	 * ordinati in senso decrescente e i nomi dei corsi alfabeticamente.
+	 * 
+	 * @throws ExamException
+	 **/
+
+	public Map<Integer, List<String>> gradesOfStudent(String studentId)
+			throws ExamException {
+		if (!students.containsKey(studentId))
+			throw new ExamException("Student not enrolled");
+		Map<String, Integer> map1 = students.get(studentId).getStudyplan()
+				.getCourses().values().stream()
+				.sorted(Comparator.comparing(Course::getName))
+				.collect(Collectors.toMap(Course::getName,
+						c -> c.getGrades().get(studentId)));
+		return map1.entrySet().stream().collect(Collectors.groupingBy(
+				e -> e.getValue(), TreeMap::new,
+				Collectors.mapping(e -> e.getKey(), Collectors.toList())));
+	}
+
+	/**
+	 * 
+	 * Il metodo gradesOfCourse (String courseName) per il corso indicato
+	 * raggruppa per voto gli id degli studenti che hanno superato l'esame; i
+	 * voti sono ordinati in senso decrescente e gli id alfabeticamente.
+	 * 
+	 * @throws ExamException
+	 * 
+	 **/
+	public Map<Integer, List<String>> gradesOfCourse(String courseName)
+			throws ExamException {
+		if (!coursesGlob.containsKey(courseName))
+			throw new ExamException("Course does not exist");
+		return coursesGlob.get(courseName).getGrades().entrySet().stream()
+				.collect(Collectors.groupingBy(e -> e.getValue(), TreeMap::new,
+						Collectors.mapping(e -> e.getKey(),
+								Collectors.toList())));
+	}
+	/**
+	 * 
+	 * Il metodo int failingGradesOfStudent (String studentId) dà il n. degli
+	 * esami falliti (cioè il n. dei failing grades) per lo studente indicato.
+	 * 
+	 * @throws ExamException
+	 * 
+	 **/
+	public int failingGradesOfStudent(String studentId) throws ExamException {
+		if (!students.containsKey(studentId))
+			throw new ExamException("Student not enrolled");
+
+		Long result = students.get(studentId).getGrades().values().stream()
+				.filter(i -> i < 18).count();
+		return (int) (long) result;
+	}
+	/***
+	 * Il metodo int failingGradesOfCourse (String courseName) dà il n. degli
+	 * esami falliti (cioè il n. dei failing grades) per il corso indicato. I 4
+	 * metodi lanciano un'eccezione se l'id dello studente o il corso sono
+	 * indefiniti.
+	 * 
+	 * @throws ExamException
+	 */
+	public int failingGradesOfCourse(String courseName) throws ExamException {
+		if (!coursesGlob.containsKey(courseName))
+			throw new ExamException("Course does not exist");
+		Long result = coursesGlob.get(courseName).getGrades().values().stream()
+				.filter(i -> i < 18).count();
+		return (int) (long) result;
 	}
 
 }
